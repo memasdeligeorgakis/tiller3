@@ -10,9 +10,11 @@ describe('Repository', () => {
 
     let spaceships: SpaceshipRepository
     let spaceshipsV: SpaceshipRepository
+    let spaceshipsT: SpaceshipRepository
     beforeEach(async() => {
-        spaceships = new SpaceshipRepository(db, { versionDocuments: false })
-        spaceshipsV = new SpaceshipRepository(db, { versionDocuments: true })
+        spaceships = new SpaceshipRepository(db, { versionDocuments: false, timestamps: false  })
+        spaceshipsV = new SpaceshipRepository(db, { versionDocuments: true, timestamps: false  })
+        spaceshipsT = new SpaceshipRepository(db, { versionDocuments: false, timestamps: true })
     })
 
     // Tests the behaviour of insertOne. See the tests of insertMany, which are
@@ -69,7 +71,24 @@ describe('Repository', () => {
         })
 
         it('saves a timestamped document to the database', async() => {
-            // TODO
+            let r = await spaceshipsT.insertOne({
+                name: 'USS Enterprise'
+            })
+
+            expect(await spaceships.collection.find({}).toArray()).to.eqls([{
+                _id: r._id,
+                _createdAt: r._createdAt,
+                _updatedAt: r._updatedAt,
+                name: 'USS Enterprise'
+            }])
+        })
+
+        it('saves a document to the database without timestamps if Options.timestamps is false', async() => {
+            let r = await spaceships.insertOne({
+                name: 'USS Enterprise'
+            })
+
+            expect(await spaceships.collection.findOne({_id: r._id})).to.not.have.any.keys('_createdAt', '_updatedAt');
         })
 
         it('returns the saved document', async() => {
@@ -169,7 +188,23 @@ describe('Repository', () => {
         })
 
         it('saves timestamped documents to the database', async() => {
-            // TODO
+            let r = await spaceshipsT.insertMany([{
+                name: 'USS Enterprise'
+            }, {
+                name: 'USS Voyager'
+            }])
+
+            expect(await spaceships.collection.find({}).toArray()).to.eqls([{
+                _id: r[0]._id,
+                _createdAt: r[0]._createdAt,
+                _updatedAt: r[0]._updatedAt,
+                name: 'USS Enterprise'
+            }, {
+                _id: r[1]._id,
+                _createdAt: r[1]._createdAt,
+                _updatedAt: r[1]._updatedAt,
+                name: 'USS Voyager'
+            }])
         })
 
         it('returns the saved documents', async() => {
@@ -199,10 +234,12 @@ describe('Repository', () => {
             // Prepare a non-versioned and versioned spaceship
             let spaceship: Spaceship
             let spaceshipV: Spaceship
+            let spaceshipT: Spaceship
 
             // Get hold of the update or upsert operation, non-versioned and versioned
             let fn:(update:Document) => Promise<Spaceship> = null
             let fnV:(update:Document) => Promise<Spaceship> = null
+            let fnT:(update:Document) => Promise<Spaceship> = null
 
             beforeEach(async() => {
                 spaceship = await spaceships.insertOne({
@@ -211,8 +248,12 @@ describe('Repository', () => {
                 spaceshipV = await spaceshipsV.insertOne({
                     name: 'USS Enterprise'
                 })
+                spaceshipT = await spaceshipsT.insertOne({
+                    name: 'USS Enterprise'
+                })
                 fn = spaceships[operation].bind(spaceships)
                 fnV = spaceshipsV[operation].bind(spaceshipsV)
+                fnT = spaceshipsT[operation].bind(spaceshipsT)
             })
 
             it('updates properties, leaving the others untouched', async() => {
@@ -247,7 +288,6 @@ describe('Repository', () => {
                 expect(r._version).to.eqls(spaceshipV._version + 1)
             })
 
-
             it('does not update if _version is old', async() => {
                 // First update should work
                 let r = await fnV({
@@ -272,6 +312,21 @@ describe('Repository', () => {
                 expect(await spaceships.collection.find({ _id: spaceshipV._id }).toArray()).to.eqls([r])
             })
 
+            it('updates with updatedAt timestamp', async() => {
+                let r = await fnT({
+                    _id: spaceshipT._id,
+                    speed: 10000
+                })
+
+                expect(await spaceships.collection.find({_id: r._id}).toArray()).to.eqls([{
+                    _id: r._id,
+                    _createdAt: r._createdAt,
+                    _updatedAt: r._updatedAt,
+                    name: 'USS Enterprise',
+                    speed: 10000
+                }])
+            })
+
             if(operation == 'upsert') {
                 it('inserts a new document', async () => {
                     let r = await fn({
@@ -280,6 +335,20 @@ describe('Repository', () => {
                     })
 
                     expect(await spaceships.count({_id: 1})).to.eq(1)
+                })
+
+                it('adds createdAt and updatedAt timestamps at upsert that results in insert', async () => {
+                    let r = await fnT({
+                        _id: 1,
+                        speed: 10000
+                    })
+
+                    expect(await spaceships.collection.find({_id: r._id}).toArray()).to.eqls([{
+                        _id: r._id,
+                        _createdAt: r._createdAt,
+                        _updatedAt: r._updatedAt,
+                        speed: 10000
+                    }])
                 })
             }
         })

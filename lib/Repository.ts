@@ -7,9 +7,34 @@ export abstract class Repository<T extends Document> {
 
     constructor(protected db: Db, readonly collection: Collection, options?: Repository.Options) {
         this.options = _.assign({
-            versionDocuments: false
+            versionDocuments: false,
+            timestamps: true
         }, options)
     }
+
+
+    /**
+     * Add created_at property to an object with a current UTC time
+     *
+     * @param document      The document to be added
+     * @returns document    The document to be added but it has now created_at property
+     */
+    private setCreatedAt(document: any): any{
+        document['_createdAt'] = new Date()
+        return document
+    }
+
+    /**
+     * Add updated_at property to an object with a current UTC time
+     *
+     * @param document      The document to be added
+     * @returns document    The document to be added but it has now updated_at property
+     */
+    private setUpdatedAt(document: any): any{
+        document['_updatedAt'] = new Date()
+        return document
+    }
+
 
     /**
      * Passes aggregation stages to the mongoDB aggregation pipeline and returns a cursor
@@ -40,6 +65,11 @@ export abstract class Repository<T extends Document> {
             document._version = document._version || 0
         }
 
+        if (this.options.timestamps) {
+            document = this.setCreatedAt(document)
+            document = this.setUpdatedAt(document)
+        }
+
         const r = await this.collection.insertOne(document)
         return r.ops[0]
     }
@@ -56,6 +86,14 @@ export abstract class Repository<T extends Document> {
     async insertMany(documents: T[]): Promise<T[]> {
         if (this.options.versionDocuments) {
             documents.forEach(d => d._version = d._version || 0)
+        }
+
+        if (this.options.timestamps) {
+            documents.forEach((document)=>{
+                document = this.setCreatedAt(document)
+                document = this.setUpdatedAt(document)
+            })
+
         }
 
         const r = await this.collection.insertMany(documents)
@@ -87,6 +125,13 @@ export abstract class Repository<T extends Document> {
 
             selector['_version'] = update._version
             dbUpdate['$inc'] = { _version: 1 }
+        }
+
+        if (this.options.timestamps) {
+            dbUpdate.$set = this.setUpdatedAt(dbUpdate.$set)
+            if (options && options.upsert){
+                dbUpdate["$setOnInsert"] =  { _createdAt: new Date()}
+            }
         }
 
         try {
@@ -152,6 +197,7 @@ export abstract class Repository<T extends Document> {
 
 export namespace Repository {
     export interface Options {
-        versionDocuments?: boolean
+        versionDocuments?: boolean,
+        timestamps?: boolean
     }
 }
